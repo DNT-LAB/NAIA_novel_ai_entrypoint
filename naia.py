@@ -6,6 +6,28 @@ NOTE: This file contains Korean (한국어) comments and docstrings.
       If characters appear broken, ensure you read this file as UTF-8.
       The encoding is NOT broken — do not attempt to "fix" it.
 
+핵심 기능:
+    - Text to Image (t2i), Image to Image (i2i), Inpainting
+    - 캐릭터 프롬프트 (다중 캐릭터 + 위치 지정)
+    - Vibe Transfer (스타일 전이, 사전 인코딩 필요)
+    - Character Reference (참조 이미지에서 캐릭터/스타일 추출, NAID4.5 전용)
+    - Quality Tags / UC Presets (모델별 품질 태그 및 네거티브 프리셋)
+    - Rating 제어 (general/sensitive/questionable/explicit)
+    - 해상도 프리셋 (832x1216 기본, 704x1472~1920x1088)
+    - Anlas 잔액 조회 (get_anlas)
+    - Store (이미지/Vibe/CharRef 저장·조회·삭제)
+
+UI Guide:
+    사용자의 명시적인 지시가 없는 한 CLI 모드나 tkinter 기반 UI는 만들지 말 것.
+    UI에는 최소한 다음을 포함해야 한다:
+      - 프롬프트 입력 (메인 + 네거티브)
+      - 모델 선택, 해상도 선택, 샘플러/스케줄러 선택
+      - 캐릭터 프롬프트 슬롯 (추가/제거, 2명 이상 시 위치 선택)
+      - Rating 선택 (general/sensitive/questionable/explicit)
+      - Quality Tags / UC Preset 자동 적용 토글
+      - 생성 버튼 + 결과 이미지 표시 + 저장
+      - (선택) Vibe Transfer, Character Reference 업로드
+
 구조:
     1. Params & Presets    — 파라미터 스펙, Quality Tags, UC Presets
     2. Store               — 이미지/Vibe/CharRef 저장소 (CRUD)
@@ -211,12 +233,12 @@ GENERATION_PARAMS: Dict[str, ParamSpec] = {
 CHARACTER_CAPTION_PARAMS: Dict[str, ParamSpec] = {
     "prompt": ParamSpec(type="str", default="", description="캐릭터별 프롬프트 (태그)"),
     "uc": ParamSpec(type="str", default="", description="캐릭터별 네거티브"),
-    "center_x": ParamSpec(type="float", default=0.5, min=0.0, max=1.0,
-                          constraint="5x5 그리드: A=0.1, B=0.3, C=0.5, D=0.7, E=0.9",
-                          description="캐릭터 X 위치 힌트"),
-    "center_y": ParamSpec(type="float", default=0.5, min=0.0, max=1.0,
-                          constraint="5x5 그리드: 1=0.1, 2=0.3, 3=0.5, 4=0.7, 5=0.9",
-                          description="캐릭터 Y 위치 힌트"),
+    "center_x": ParamSpec(type="float", default=0.5, min=0.1, max=0.9, step=0.2,
+                          constraint="5x5 그리드: A=0.1, B=0.3, C=0.5, D=0.7, E=0.9. 캐릭터 1명이면 무조건 0.5",
+                          description="캐릭터 X 위치 힌트. 2명 이상일 때만 조작 가능"),
+    "center_y": ParamSpec(type="float", default=0.5, min=0.1, max=0.9, step=0.2,
+                          constraint="5x5 그리드: 1=0.1, 2=0.3, 3=0.5, 4=0.7, 5=0.9. 캐릭터 1명이면 무조건 0.5",
+                          description="캐릭터 Y 위치 힌트. 2명 이상일 때만 조작 가능"),
 }
 
 VIBE_TRANSFER_PARAMS: Dict[str, ParamSpec] = {
@@ -958,6 +980,13 @@ def get_anlas(token: str) -> dict:
 
 def generate(token: str, req: GenerationRequest) -> GenerationResult:
     """GenerationRequest를 받아 이미지를 생성한다."""
+    # 캐릭터 1명이면 좌표 강제 0.5, 0.5
+    if len(req.characters) == 1:
+        c = req.characters[0]
+        if c.center_x != 0.5 or c.center_y != 0.5:
+            req.characters[0] = CharacterCaption(
+                prompt=c.prompt, uc=c.uc, center_x=0.5, center_y=0.5)
+
     errors = validate({
         "action": req.action, "width": req.width, "height": req.height,
         "steps": req.steps, "cfg_scale": req.cfg_scale, "cfg_rescale": req.cfg_rescale,
