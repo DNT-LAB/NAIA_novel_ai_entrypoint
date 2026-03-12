@@ -299,11 +299,11 @@ PROMPT_ORDER = ["person_count", "character", "copyright", "artist", "general", "
 
 # --- 프롬프트 가중치 문법 ---
 #
-# NAID4 / NAID4.5 (새 문법):
-#   강조:  1.1::tag::          → tag에 1.1배 가중치
-#   약화:  0.8::tag::          → tag에 0.8배 가중치
-#   복수:  0.8::tag1, tag2::   → 묶어서 가중치 적용
-#   예:    1.2::smile::, 0.8::feet::, -0.5::blush, sweat::
+# NAID4 / NAID4.5 (새 문법): tag 뒤에 ::로 닫을 때는 꼭 한칸 띄울 것
+#   강조:  1.1::tag ::          → tag에 1.1배 가중치
+#   약화:  0.8::tag ::          → tag에 0.8배 가중치
+#   복수:  0.8::tag1, tag2 ::   → 묶어서 가중치 적용
+#   예:    1.2::smile ::, 0.8::feet ::, -0.5::blush, sweat ::
 #   음수 가중치(-) 가능: 해당 요소를 억제
 #
 # NAID3 (구 문법):
