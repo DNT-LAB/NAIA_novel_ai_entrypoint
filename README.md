@@ -4,19 +4,14 @@
 
 1. **naia.py 다운로드** — 이 저장소에서 `naia.py` 파일 하나만 받으면 됩니다.
 
-2. **의존성 설치**
-   ```bash
-   pip install requests Pillow
-   ```
-
-3. **CLI 도구와 함께 사용** — 아래 중 하나를 설치하세요:
+2. **CLI 도구와 함께 사용** — 아래 중 하나를 설치하세요:
    - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
    - [Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
    - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @anthropic-ai/gemini-cli`)
 
-4. **CLI 도구에게 시키기** — `naia.py`가 있는 폴더에서:
+3. **CLI 도구에게 시키기** — `naia.py`가 있는 폴더에서 claude, codex, gemini 등을 실행 후:
    ```
-   claude "naia.py를 읽고 이미지 생성 테스트를 해줘. 토큰: pst-여기에토큰붙여넣기"
+   naia.py를 읽고 이미지 생성 테스트를 해줘. 토큰: pst-여기에토큰붙여넣기
    ```
 
 API 토큰은 NovelAI 웹사이트 → Settings → Account → "Get Persistent API Token"에서 발급받을 수 있습니다.
