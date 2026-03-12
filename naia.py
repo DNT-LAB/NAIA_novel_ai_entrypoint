@@ -54,7 +54,9 @@ Key Notes:
     - Quality Tags & UC Presets는 클라이언트에서 직접 처리해야 한다.
       QUALITY_TAGS[model]을 prompt 끝에 추가, UC_PRESETS[model][preset]을 negative_prompt로 사용.
     - Vibe Transfer는 encode_vibe()로 사전 인코딩 필수. raw image 전달 시 500 에러.
-      인코딩 결과는 비결정적이므로 반드시 캐싱할 것.
+      [중요] encode_vibe()는 1회 호출당 2 Anlas를 소모한다. 인코딩 결과는 비결정적이므로
+      반드시 vibe_store 또는 자체 캐시에 저장하여 재사용할 것.
+      같은 이미지+모델 조합은 재-encode하지 말고 캐시된 결과를 사용해야 한다.
     - Character Reference 이미지는 자동 레터박싱됨 (NAI 캔버스 크기).
     - 프롬프트 조립 순서: [인원수], [캐릭터], [저작권], [아티스트태그], [General], [퀄리티태그]
     - 모든 옵션 레이어 (CharPrompt, Vibe, CharRef)는 다중 사용 및 조합 가능.
@@ -659,12 +661,14 @@ class VibeData:
         return model_encodings[closest_ie]
 
 
-def encode_vibe(token: str, image: bytes, model: str = "nai-diffusion-4-5-full",
+def encode_vibe(token: str, image: bytes, model: str = "naid4.5f",
                 information_extracted: float = 1.0, max_retries: int = 3) -> str:
-    """이미지를 vibe 데이터로 인코딩. 결과는 비결정적이므로 반드시 저장하여 재사용."""
+    """이미지를 vibe 데이터로 인코딩. 결과는 비결정적이므로 반드시 저장하여 재사용.
+    model은 preset key (naid4.5f) 또는 API 모델명 (nai-diffusion-4-5-full) 모두 허용."""
+    model_name = MODELS.get(model.lower(), model)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {"image": base64.b64encode(image).decode(),
-               "information_extracted": information_extracted, "model": model}
+               "information_extracted": information_extracted, "model": model_name}
 
     last_error = None
     for attempt in range(1, max_retries + 1):
@@ -1044,3 +1048,56 @@ def _generate_inpaint(token: str, r: GenerationRequest) -> GenerationResult:
     payload = {"input": r.prompt, "model": _resolve_model(r.model, is_inpaint=True),
                "action": "infill", "parameters": params}
     return _unzip_image(_post(token, payload))
+
+
+# ████████████████████████████████████████████████████████████
+# PRD: 프로그램 개발 시 참고사항
+# ████████████████████████████████████████████████████████████
+#
+# 이 코드를 기반으로 본격적인 프로그램을 개발할 때 반드시 고려해야 할 사항.
+#
+# 1. 모델/파라미터 일관성
+#    - 모든 public 함수는 preset key (naid4.5f)와 API 모델명 모두 허용해야 한다.
+#    - 예제, 문서, UI가 같은 입력 규칙을 따라야 한다.
+#
+# 2. 비용 발생 작업의 명시적 분리
+#    - encode_vibe()는 1회 2 Anlas. 생성과 묶어서 자동 실행하지 말 것.
+#    - 비용 발생 작업은 사용자에게 사전 고지 후 실행.
+#    - 재사용 가능한 결과는 반드시 캐시 (vibe_store 활용).
+#
+# 3. 상태 모델 분리
+#    - 생성 요청 상태: prompt, size, sampler, action
+#    - 자산 상태: source image, mask, vibe (encoded), character ref
+#    - 비용 상태: Anlas 잔액, encode 캐시 적중 여부
+#    - 결과 상태: output image, metadata, seed
+#
+# 4. 모드별 제약을 UI가 선제적으로 보장
+#    - generate/img2img/infill 별 필수 입력이 다름 (image, mask 등)
+#    - character_refs는 NAID4.5 전용 → 다른 모델 선택 시 UI에서 비활성화
+#    - 캐릭터 1명이면 좌표 선택 비활성화 (0.5, 0.5 고정)
+#    - 엔진 검증(validate)은 최후 방어선. UI가 먼저 막아야 한다.
+#
+# 5. 재사용 가능한 산출물을 1급 객체로 취급
+#    - generation preset (프롬프트 + 파라미터 세트)
+#    - vibe artifact (인코딩 완료된 vibe, 모델/IE별 캐시)
+#    - character reference set (레터박싱 완료된 참조 이미지)
+#    - prompt template (캐릭터 태그, 아티스트, 퀄리티 조합)
+#    - session history (생성 이력, 시드 재현)
+#
+# 6. 오류 메시지의 3층 분리
+#    - 사용자 입력 오류: "width 100은 64의 배수가 아닙니다"
+#    - 라이브러리 계약 오류: "Character Reference는 NAID4.5 전용입니다"
+#    - 외부 API 오류: "HTTP 401 — 토큰을 확인하세요"
+#
+# 7. 검증 전략
+#    - 모델별 capability matrix (어떤 모델이 어떤 기능을 지원하는지)
+#    - action별 required/forbidden field matrix
+#    - 비용 발생 동작에 대한 테스트
+#    - 예제 코드와 실제 public API의 일치 테스트
+#
+# 8. 토큰 영속성
+#    - 사용자가 한번 입력한 API 토큰은 로컬에 저장하여 재입력 없이 재사용할 것.
+#    - 매번 토큰을 다시 입력하게 하지 말 것.
+#
+# 핵심: "이미지 생성 GUI"가 아니라
+# "비용이 드는 생성 자산을 안전하게 다루는 일관된 워크플로우 도구"로 설계할 것.
