@@ -14,6 +14,7 @@ NOTE: This file contains Korean (한국어) comments and docstrings.
     - Quality Tags / UC Presets (모델별 품질 태그 및 네거티브 프리셋)
     - Rating 제어 (general/sensitive/questionable/explicit)
     - 해상도 프리셋 (832x1216 기본, 704x1472~1920x1088)
+    - Upscale (2x 업스케일, 메타데이터 보존)
     - Anlas 잔액 조회 (get_anlas)
     - Store (이미지/Vibe/CharRef 저장·조회·삭제)
 
@@ -38,7 +39,7 @@ Dependencies:
     pip install requests Pillow
 
 사용법:
-    from naia import generate, GenerationRequest, QUALITY_TAGS, UC_PRESETS
+    from naia import generate, upscale, GenerationRequest, QUALITY_TAGS, UC_PRESETS
 
 API Token:
     NovelAI Persistent API Token (pst-...) 이 필요하다.
@@ -299,11 +300,11 @@ PROMPT_ORDER = ["person_count", "character", "copyright", "artist", "general", "
 
 # --- 프롬프트 가중치 문법 ---
 #
-# NAID4 / NAID4.5 (새 문법): tag 뒤에 ::로 닫을 때는 꼭 한칸 띄울 것
-#   강조:  1.1::tag ::          → tag에 1.1배 가중치
-#   약화:  0.8::tag ::          → tag에 0.8배 가중치
-#   복수:  0.8::tag1, tag2 ::   → 묶어서 가중치 적용
-#   예:    1.2::smile ::, 0.8::feet ::, -0.5::blush, sweat ::
+# NAID4 / NAID4.5 (새 문법):
+#   강조:  1.1::tag::          → tag에 1.1배 가중치
+#   약화:  0.8::tag::          → tag에 0.8배 가중치
+#   복수:  0.8::tag1, tag2::   → 묶어서 가중치 적용
+#   예:    1.2::smile::, 0.8::feet::, -0.5::blush, sweat::
 #   음수 가중치(-) 가능: 해당 요소를 억제
 #
 # NAID3 (구 문법):
@@ -1048,6 +1049,49 @@ def _generate_inpaint(token: str, r: GenerationRequest) -> GenerationResult:
     payload = {"input": r.prompt, "model": _resolve_model(r.model, is_inpaint=True),
                "action": "infill", "parameters": params}
     return _unzip_image(_post(token, payload))
+
+
+UPSCALE_URL = "https://api.novelai.net/ai/upscale"
+
+
+def upscale(token: str, image: bytes, scale: int = 2) -> GenerationResult:
+    """이미지를 2배 업스케일한다. 응답 PNG에 원본 메타데이터가 보존된다.
+
+    Args:
+        token: NAI Persistent API Token (pst-...)
+        image: 원본 PNG 이미지 bytes (raw_bytes 권장 — 메타데이터 보존)
+        scale: 업스케일 배수 (기본 2, API 지원 범위에 따름)
+
+    Returns:
+        GenerationResult(image=PIL.Image, raw_bytes=bytes)
+
+    비용: Opus 무료, 비Opus 시 Anlas 소모.
+    메타데이터: 원본 PNG의 tEXt chunks (Comment, Description 등)가 포함된 bytes를 전송하면
+              응답 이미지에도 메타데이터가 보존된다. PIL/QPixmap에서 재인코딩한 bytes는
+              메타데이터가 소실되므로 반드시 raw_bytes를 사용할 것.
+    """
+    img = Image.open(io.BytesIO(image))
+    data = {
+        "image": base64.b64encode(image).decode(),
+        "width": img.width,
+        "height": img.height,
+        "scale": scale,
+    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(UPSCALE_URL, headers=headers, json=data, timeout=60)
+        if resp.status_code == 401:
+            raise RuntimeError("Authentication failed (401). Check your API token.")
+        if resp.status_code == 429:
+            raise RuntimeError("Rate limited (429). Wait before retrying.")
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise RuntimeError(f"Upscale failed: HTTP {e.response.status_code}: {e.response.text[:200]}") from e
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Upscale request timed out (60s).") from None
+    except requests.exceptions.ConnectionError as e:
+        raise RuntimeError(f"Network error: {e}") from e
+    return _unzip_image(resp.content)
 
 
 # ████████████████████████████████████████████████████████████
